@@ -6,7 +6,27 @@ pub use self::orthogonal::*;
 
 #[cfg(not(feature = "parallel"))]
 mod orthogonal {
-    use std::cell::UnsafeCell;
+    use std::cell::{RefCell, UnsafeCell};
+
+    pub struct Shared<T> {
+        cell: RefCell<T>,
+    }
+
+    impl<T> Shared<T> {
+        pub fn new(value: T) -> Self {
+            Shared {
+                cell: RefCell::new(value),
+            }
+        }
+
+        pub fn lock(&self) -> impl std::ops::DerefMut<Target = T> + '_ {
+            self.cell.borrow_mut()
+        }
+
+        pub fn get_mut(&mut self) -> &mut T {
+            self.cell.get_mut()
+        }
+    }
 
     /// Synchronous multithreaded consumable vector.
     pub struct SyncPop<T> {
@@ -24,12 +44,12 @@ mod orthogonal {
             &mut *self.vec.get()
         }
 
-        /// Create storage without values.
-        pub fn new() -> Self {
-            SyncPop {
-                vec: UnsafeCell::new(Vec::new()),
-            }
-        }
+        // /// Create storage without values.
+        // pub fn new() -> Self {
+        //     SyncPop {
+        //         vec: UnsafeCell::new(Vec::new()),
+        //     }
+        // }
 
         /// Create storage with values.
         pub fn from_iter(values: impl IntoIterator<Item = T>) -> Self {
@@ -47,14 +67,23 @@ mod orthogonal {
             }
         }
 
-        /// Returns excess capacity.
-        pub fn excess(&mut self) -> usize {
+        /// Pops next value from storage and returns it.
+        /// Returns `None` if all values have been already taken.
+        pub fn pop_mut(&mut self) -> Option<T> {
             unsafe {
                 // Reference doesn't escape this function
-                let vec = self.inner();
-                vec.capacity() - vec.len()
+                self.inner().pop()
             }
         }
+
+        // /// Returns excess capacity.
+        // pub fn excess(&mut self) -> usize {
+        //     unsafe {
+        //         // Reference doesn't escape this function
+        //         let vec = self.inner();
+        //         vec.capacity() - vec.len()
+        //     }
+        // }
 
         /// Fills storage with values.
         pub fn extend(&mut self, values: impl IntoIterator<Item = T>) {
@@ -127,13 +156,13 @@ mod orthogonal {
             }
         }
 
-        /// Reserive additional capacity.
-        pub fn reserve(&mut self, additional: usize) {
-            unsafe {
-                // Reference doesn't escape this function
-                self.inner().reserve(additional);
-            }
-        }
+        // /// Reserive additional capacity.
+        // pub fn reserve(&mut self, additional: usize) {
+        //     unsafe {
+        //         // Reference doesn't escape this function
+        //         self.inner().reserve(additional);
+        //     }
+        // }
     }
 }
 
@@ -143,6 +172,8 @@ mod parallel {
         parking_lot::Mutex,
         std::sync::atomic::{AtomicUsize, Ordering},
     };
+
+    pub use parking_lot::Mutex as Shared;
 
     /// Synchronous multithreaded consumable vector.
     pub struct SyncPop<T> {

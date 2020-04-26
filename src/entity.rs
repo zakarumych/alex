@@ -1,9 +1,8 @@
 use {
     crate::{
         generation::{Generation, GenerationCounter},
-        util::{SyncPop, SyncPush},
+        util::{Shared, SyncPop, SyncPush},
     },
-    parking_lot::Mutex,
     std::{cell::UnsafeCell, fmt::Debug},
 };
 
@@ -43,11 +42,11 @@ pub struct Entities {
     /// Initial size is set on `Entities` creation.
     free: SyncPop<usize>,
 
-    /// Mutex guarded growing array of entity entries.
+    /// Shared growing array of entity entries.
     /// It is used only when free entries list is exhausted
     /// which should never happen,
     /// but may and we prefer worse performance to panicing.
-    slow_entries: Mutex<Vec<Entry>>,
+    slow_entries: Shared<Vec<Entry>>,
 
     /// List of dropped entity indices.
     /// This list shoud be big enough for systems to drop entities,
@@ -76,7 +75,7 @@ impl Entities {
                 .take(initial_free)
                 .collect(),
             free: SyncPop::from_iter(0..initial_free),
-            slow_entries: Mutex::new(Vec::new()),
+            slow_entries: Shared::new(Vec::new()),
             drop: SyncPush::new(initial_drop),
         }
     }
