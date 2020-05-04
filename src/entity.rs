@@ -19,7 +19,7 @@ pub struct Entity {
 
 /// Collection of all entities.
 /// Entity contains nothing more than indices to its components.
-pub struct Entities {
+pub(crate) struct Entities {
     /// Array of entity entries contains current generation for the index
     /// and indices to find entity's components.
     entries: Vec<Entry>,
@@ -70,13 +70,13 @@ impl Entities {
 
     /// Spawns new entity with specified location.
     /// FIXME: Multispawn.
-    pub(crate) fn spawn(&self, location: Location) -> Entity {
+    pub fn spawn(&self, location: Location) -> Entity {
         self.spawn_with(|_| location)
     }
 
     /// Spawns new entity with specified location.
     /// FIXME: Multispawn.
-    pub(crate) fn spawn_with(&self, location: impl FnOnce(usize) -> Location) -> Entity {
+    pub fn spawn_with(&self, location: impl FnOnce(usize) -> Location) -> Entity {
         if let Some(index) = self.free.pop() {
             // free index left. Use it.
             let entry = &self.entries[index];
@@ -108,12 +108,7 @@ impl Entities {
     }
 
     /// Spawns new entity with specified location.
-    pub(crate) fn spawn_mut(&mut self, location: Location) -> Entity {
-        self.spawn_with_mut(|_| location)
-    }
-
-    /// Spawns new entity with location returnd by function.
-    pub(crate) fn spawn_with_mut(&mut self, location: impl FnOnce(usize) -> Location) -> Entity {
+    pub fn spawn_mut(&mut self, location: Location) -> Entity {
         if let Some(index) = self.free.pop_mut() {
             // free index left. Use it.
             let entry = &mut self.entries[index];
@@ -121,7 +116,7 @@ impl Entities {
                 // Entry was free and now acquired by this `spawn` invocation.
                 // Access through previously returned `Entity` with same index (if it was)
                 // will be prevented by bumped `generation` id.
-                *entry.location.get() = location(index);
+                *entry.location.get() = location;
             }
 
             Entity {
@@ -130,7 +125,7 @@ impl Entities {
             }
         } else {
             let index = self.entries.len();
-            let entry = Entry::with_location(location(index));
+            let entry = Entry::with_location(location);
             let generation = entry.generation.get();
             self.entries.push(entry);
 
@@ -145,7 +140,7 @@ impl Entities {
     }
 
     /// Perform periodic maintanance.
-    pub(crate) fn maintenance(&mut self, mut drop_fn: impl FnMut(Location)) {
+    pub fn maintenance(&mut self, mut drop_fn: impl FnMut(Location)) {
         let mut excess = self.slow_entries.get_mut().len();
         self.entries.append(self.slow_entries.get_mut());
 
@@ -171,7 +166,7 @@ impl Entities {
         }
     }
 
-    pub(crate) fn get(&self, entity: &Entity) -> Option<Location> {
+    pub fn get(&self, entity: &Entity) -> Option<Location> {
         let entry = self.entries.get(entity.index)?;
         if entry.generation.get() == entity.generation {
             unsafe { *entry.location.get() }.into()
@@ -179,21 +174,6 @@ impl Entities {
             assert!(entry.generation.get() > entity.generation);
             None
         }
-    }
-
-    pub(crate) fn get_mut(&mut self, entity: &Entity) -> Option<&mut Location> {
-        let entry = self.entries.get(entity.index)?;
-        if entry.generation.get() == entity.generation {
-            unsafe { &mut *entry.location.get() }.into()
-        } else {
-            assert!(entry.generation.get() > entity.generation);
-            None
-        }
-    }
-
-    pub(crate) fn get_raw_mut(&mut self, index: usize) -> Option<&mut Location> {
-        let entry = self.entries.get(index)?;
-        unsafe { &mut *entry.location.get() }.into()
     }
 }
 

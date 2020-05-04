@@ -224,11 +224,6 @@ impl Archetype {
         &self.info
     }
 
-    /// Returns number of entities in this archetype.
-    pub fn len(&self) -> U32Size {
-        self.len
-    }
-
     /// Returns an iterator over sizes of chunks in the archetype.
     pub fn chunk_sizes(&self) -> ChunkSizes {
         ChunkSizes::new(self.info.chunk_capacity.into(), self.len.into())

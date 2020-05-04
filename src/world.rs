@@ -159,7 +159,7 @@ impl World {
     }
 
     /// Borrows entities
-    pub fn entities(&self) -> &Entities {
+    pub(crate) fn entities(&self) -> &Entities {
         &self.entities
     }
 }
