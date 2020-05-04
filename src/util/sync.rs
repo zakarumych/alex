@@ -191,19 +191,6 @@ mod parallel {
     unsafe impl<T: Send> Sync for SyncPop<T> {}
 
     impl<T> SyncPop<T> {
-        // /// Create storage without values.
-        // pub fn new() -> Self {
-        //     let mut vec = Vec::with_capacity(0);
-        //     let ptr = vec.as_mut_ptr();
-        //     let cap = vec.capacity();
-        //     std::mem::forget(vec);
-        //     SyncPop {
-        //         ptr,
-        //         len: AtomicUsize::new(0),
-        //         cap,
-        //     }
-        // }
-
         /// Create storage with values.
         pub fn from_iter(values: impl IntoIterator<Item = T>) -> Self {
             let mut vec: Vec<_> = values.into_iter().collect();
@@ -252,11 +239,6 @@ mod parallel {
                 None
             }
         }
-
-        // /// Returns excess capacity.
-        // pub fn excess(&mut self) -> usize {
-        //     self.cap - *self.len.get_mut()
-        // }
 
         /// Fills storage with values.
         pub fn extend(&mut self, values: impl IntoIterator<Item = T>) {
@@ -393,23 +375,6 @@ mod parallel {
                 len: self.len.get_mut(),
             })
         }
-
-        // /// Reserive additional capacity.
-        // pub fn reserve(&mut self, additional: usize) {
-        //     let mut vec = Vec::with_capacity(self.cap + additional);
-        //     let mut ptr = vec.as_mut_ptr();
-        //     let mut cap = vec.capacity();
-
-        //     debug_assert!(*self.len.get_mut() <= cap);
-        //     std::mem::forget(vec);
-
-        //     unsafe {
-        //         std::ptr::copy_nonoverlapping(self.ptr, ptr, *self.len.get_mut());
-        //         std::mem::swap(&mut self.ptr, &mut ptr);
-        //         std::mem::swap(&mut self.cap, &mut cap);
-        //         Vec::from_raw_parts(ptr, 0, cap);
-        //     }
-        // }
     }
 
     impl<T> Drop for SyncPush<T> {
@@ -420,55 +385,3 @@ mod parallel {
         }
     }
 }
-
-// /// Returns if `lhs` iterator is superset of `rhs`.
-// /// i.e. it contains all elements for `rhs` and optionally more.
-// ///
-// /// Iterators must be sorted. Otherwise returned value may be arbitrary.
-// pub fn is_superset<T: Ord>(
-//     lhs: impl ExactSizeIterator<Item = T>,
-//     rhs: impl ExactSizeIterator<Item = T>,
-// ) -> bool {
-//     if lhs.len() < rhs.len() {
-//         // Short-cut. Superset magnitude cannot be less than set magnitude.
-//         return false;
-//     }
-
-//     // How much this set magnitude is bigger?
-//     let mut excess = lhs.len() - rhs.len();
-
-//     let mut rhs = rhs.peekable();
-//     for l in lhs {
-//         if let Some(r) = rhs.peek() {
-//             if *r < l {
-//                 // If component in another set is ordered "less" then it wasn't found in this set.
-//                 return false;
-//             } else if *r == l {
-//                 rhs.next();
-//             } else if excess > 0 {
-//                 // `l` is not in another set. Reduce excess counter.
-//                 excess -= 1;
-//             } else {
-//                 // `l` is not in another set and components left
-//                 // in this set is not more than in another one.
-//                 return false;
-//             }
-//         } else {
-//             return true;
-//         }
-//     }
-//     // This branch is executed only if both sets are empty.
-//     debug_assert!(rhs.peek().is_none());
-//     true
-// }
-
-// /// Returns if `lhs` iterator is subset of `rhs`.
-// /// i.e. it does not contain elements not presented in `rhs`.
-// ///
-// /// Iterators must be sorted. Otherwise returned value may be arbitrary.
-// pub fn is_subset<T: Ord>(
-//     lhs: impl ExactSizeIterator<Item = T>,
-//     rhs: impl ExactSizeIterator<Item = T>,
-// ) -> bool {
-//     is_superset(rhs, lhs)
-// }

@@ -25,21 +25,36 @@ impl<T> Component for T where T: Send + Sync + 'static {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ComponentInfo {
     /// Type id of the component.
-    /// `TypeId::of::<T>()` for component `T`.
-    pub id: ComponentId,
+    type_id: TypeId,
     /// Component layout.
-    pub layout: Layout,
+    layout: Layout,
     /// Type name.
-    pub name: &'static str,
+    name: &'static str,
 }
 
 impl ComponentInfo {
     pub fn of<T: Component>() -> Self {
         ComponentInfo {
-            id: T::component_id(),
+            type_id: TypeId::of::<T>(),
             layout: Layout::new::<T>(),
             name: std::any::type_name::<T>(),
         }
+    }
+
+    pub fn id(&self) -> ComponentId {
+        ComponentId {
+            type_id: self.type_id,
+            #[cfg(debug_assertions)]
+            name: self.name,
+        }
+    }
+
+    pub fn layout(&self) -> Layout {
+        self.layout
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
     }
 }
 
@@ -48,7 +63,7 @@ impl ComponentInfo {
 /// Which is crutial for storing components in archetype's chunks in the same order.
 impl Ord for ComponentInfo {
     fn cmp(&self, other: &Self) -> Ordering {
-        Ord::cmp(&self.id, &other.id)
+        Ord::cmp(&self.type_id, &other.type_id)
     }
 }
 
@@ -60,15 +75,19 @@ impl PartialOrd for ComponentInfo {
 
 /// Contains minimal info required for binsearching component in array.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
+#[cfg_attr(not(debug_assertions), repr(transparent))]
 pub struct ComponentId {
-    pub type_id: TypeId,
+    type_id: TypeId,
+    #[cfg(debug_assertions)]
+    name: &'static str,
 }
 
 impl ComponentId {
     pub fn of<T: Component>() -> Self {
         ComponentId {
             type_id: TypeId::of::<T>(),
+            #[cfg(debug_assertions)]
+            name: T::type_name(),
         }
     }
 }

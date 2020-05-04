@@ -1,8 +1,9 @@
 use {
     crate::{
-        archetype::{Archetype, ComponentSet},
+        archetype::{Archetype, ComponentSet, Location},
         component::Component,
-        entity::{Entities, Entity, Location},
+        entity::{Entities, Entity},
+        util::U32Size,
     },
     std::{
         any::TypeId,
@@ -13,11 +14,11 @@ use {
 
 struct Archetypes {
     array: Vec<Archetype>,
-    set_to_archetype: HashMap<TypeId, u32>,
+    set_to_archetype: HashMap<TypeId, U32Size>,
 }
 
 impl Archetypes {
-    fn archetype_for_set<S>(&mut self) -> u32
+    fn archetype_for_set<S>(&mut self) -> U32Size
     where
         S: ComponentSet,
     {
@@ -30,11 +31,11 @@ impl Archetypes {
                 let result = self
                     .array
                     .iter_mut()
-                    .position(|archetype| archetype.info().is(components.iter().map(|c| c.id)));
+                    .position(|archetype| archetype.info().is(components.iter().map(|c| c.id())));
 
                 match result {
-                    Some(archetype) => u32::try_from(archetype).unwrap(),
-                    None => match u32::try_from(self.array.len()) {
+                    Some(archetype) => U32Size::try_from(archetype).unwrap(),
+                    None => match U32Size::try_from(self.array.len()) {
                         Err(_) => panic!("Too many archetypes"),
                         Ok(len) => {
                             let archetype = Archetype::new(&components);
@@ -48,21 +49,23 @@ impl Archetypes {
         }
     }
 
-    fn get(&self, index: u32) -> &Archetype {
-        &self.array[usize::try_from(index).unwrap()]
+    fn get(&self, index: U32Size) -> &Archetype {
+        &self.array[index.as_usize()]
     }
 
-    fn get_mut(&mut self, index: u32) -> &mut Archetype {
-        &mut self.array[usize::try_from(index).unwrap()]
+    fn get_mut(&mut self, index: U32Size) -> &mut Archetype {
+        &mut self.array[index.as_usize()]
     }
 }
 
+/// Container for entities and their components.
 pub struct World {
     entities: Entities,
     archetypes: Archetypes,
 }
 
 impl World {
+    /// Returns newly created `World`.
     pub fn new() -> Self {
         World {
             entities: Entities::new(1024, 1024),
@@ -73,7 +76,8 @@ impl World {
         }
     }
 
-    ///
+    /// For each set yield by iterator create an entity with all components from the set.
+    /// Returns iterator of created entities.
     ///
     ///
     /// # Example
@@ -102,21 +106,21 @@ impl World {
         let entities = &mut self.entities;
 
         self.archetypes.get_mut(archetype).insert(
-            move |chunk, entity| {
-                entities.spawn_mut(Location {
-                    archetype,
-                    chunk,
-                    entity,
-                })
-            },
+            move |entity| entities.spawn_mut(Location { archetype, entity }),
             sets.into_iter(),
         )
     }
 
+    /// Returns immutable borrow for component of specified entity.
+    /// Returns `None` if entities does not have component with required type
+    /// or entitiy was destroyed
     pub fn get_component<T: Component>(&self, entity: &Entity) -> Option<&T> {
         let entry = self.entities.get(entity)?;
         let archetype = self.archetypes.get(entry.archetype);
         let offset = archetype.info().component_offset(T::component_id())?;
+
+        let (chunk_index, entity_index) = archetype.info().split_entity_index(entry.entity);
+
         let mut chunks = unsafe {
             // Immutable reference to the `World` guarantees that
             // `get_component_mut` cannot be called
@@ -125,27 +129,37 @@ impl World {
             archetype.read_component::<T>(offset)
         };
         chunks
-            .nth(entry.chunk.into())?
-            .iter()
-            .nth(entry.entity.into())
+            .nth(chunk_index.as_usize())?
+            .nth(entity_index.as_usize())
     }
 
-    pub fn get_component_mut<T: Component>(&mut self, entity: &Entity) -> Option<&T> {
+    /// Returns mutable borrow for component of specified entity.
+    /// Returns `None` if entities does not have component with required type
+    /// or entitiy was destroyed
+    pub fn get_component_mut<T: Component>(&mut self, entity: &Entity) -> Option<&mut T> {
         let entry = self.entities.get(entity)?;
         let archetype = self.archetypes.get(entry.archetype);
         let offset = archetype.info().component_offset(T::component_id())?;
+
+        let (chunk_index, entity_index) = archetype.info().split_entity_index(entry.entity);
+
         let mut chunks = unsafe {
             // Mutable reference to the `World` guarantees that
             // no other access_types can be performed.
             archetype.write_component::<T>(offset)
         };
         chunks
-            .nth(entry.chunk.into())?
-            .iter()
-            .nth(entry.entity.into())
+            .nth(chunk_index.as_usize())?
+            .nth(entity_index.as_usize())
     }
 
+    /// Returns slice of archetypes.
     pub fn archetypes(&self) -> &[Archetype] {
         &self.archetypes.array
+    }
+
+    /// Borrows entities
+    pub fn entities(&self) -> &Entities {
+        &self.entities
     }
 }

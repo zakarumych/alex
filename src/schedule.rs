@@ -1,25 +1,14 @@
-//! Query execution scheduler.
-//! Schedules queries in conflict-free fasion.
-//! That is, no two conflicting query may be executed in parallel.
-//! Two queries conflict if they access same components on same archetypes
-//! and at least one of them do so mutably.
-//!
-//! Although conflict relation is non-transitive
-//! scheduler will not schedule a query before conflicting queries that were added before it.
-//!
-//! That is if queries X and Y conflict then they will be executed in the same order that they were added to `Schedule`.
-//!
-
 use {
     crate::{
         access::{Access, Accessor, ComponentAccess, WorldAccess},
         archetype::ArchetypeInfo,
+        entity::Entities,
         world::World,
     },
     bumpalo::{collections::Vec as BVec, Bump},
 };
 
-#[cfg(feature = "rayon-parallel")]
+#[cfg(all(feature = "rayon", feature = "parallel"))]
 mod parallel {
     use {
         super::*,
@@ -50,7 +39,7 @@ mod parallel {
         signals: Vec<usize>,
 
         /// Closure to run for this node.
-        runnable: UnsafeCell<Box<dyn AnyQuery>>,
+        runnable: UnsafeCell<Box<dyn AnySystem>>,
 
         access_types: BVec<'a, BVec<'a, ComponentAccess>>,
     }
@@ -60,8 +49,9 @@ mod parallel {
         ///
         /// Node access to filtered archetypes must be synchronzied.
         /// This function must be called at most once.
-        unsafe fn execute(&self, bump: &Bump, archetypes: &'a [Archetype]) {
+        unsafe fn execute(&self, entities: &Entities, archetypes: &[Archetype], bump: &Bump) {
             (&mut *self.runnable.get()).run_once(WorldAccess::new(
+                entities,
                 archetypes,
                 &*self.access_types,
                 bump,
@@ -79,6 +69,7 @@ mod parallel {
     fn signal_to_node<'s>(
         nodes: &'s [Node],
         node_index: usize,
+        entities: &'s Entities,
         archetypes: &'s [Archetype],
         scope: &rayon::Scope<'s>,
         bumps: &'s SyncBump<'_>,
@@ -90,12 +81,12 @@ mod parallel {
         if left == 0 {
             scope.spawn(move |scope| {
                 unsafe {
-                    node.execute(bumps.bump(), archetypes);
+                    node.execute(entities, archetypes, bumps.bump());
                 }
 
                 for signal in &node.signals {
                     debug_assert!(*signal > node_index);
-                    signal_to_node(nodes, *signal, archetypes, scope, bumps);
+                    signal_to_node(nodes, *signal, entities, archetypes, scope, bumps);
                 }
             })
         }
@@ -187,23 +178,19 @@ mod parallel {
 
             let mut nodes = BVec::<Node<'_>>::new_in(bump);
 
-            for query in self.queries {
+            for system in self.systems {
                 let next_node = nodes.len();
-                let mut waits = 0;
+                let mut waits = BVec::new_in(bump);
 
                 let access_types = archetypes.iter_mut().map(|archetype| {
-                    let access_types = query.access_types(archetype.archetype.info(), bump);
+                    let access_types = system.access_types(archetype.archetype.info(), bump);
 
                     // Try to add into last group.
                     if merge_access_types(&mut archetype.access_types, &access_types) {
                         archetype.nodes.push(next_node);
                     } else {
-                        // Otherwise nodes in the last group signal to the new node.
-                        for node in &archetype.nodes {
-                            nodes[*node].signals.push(next_node);
-                        }
                         // New node in turn waits for all of them.
-                        waits += archetype.nodes.len();
+                        waits.extend(archetype.nodes.iter().copied());
 
                         archetype.nodes.clear();
                         archetype.nodes.push(next_node);
@@ -214,10 +201,20 @@ mod parallel {
 
                 let access_types = BVec::from_iter_in(access_types, bump);
 
+                waits.sort();
+                waits.dedup();
+
+                let waits = waits
+                    .into_iter()
+                    .map(|wait| {
+                        nodes[wait].signals.push(next_node);
+                    })
+                    .count();
+
                 nodes.push(Node {
                     waits: AtomicUsize::new(waits + 1), // One extra will be subtracted by execution loop.
                     signals: Vec::new(),
-                    runnable: UnsafeCell::new(query),
+                    runnable: UnsafeCell::new(system),
                     access_types,
                 });
             }
@@ -225,17 +222,18 @@ mod parallel {
             log::trace!("Executing schedule on rayon thread pool");
             let nodes = &nodes[..];
             let archetypes = world.archetypes();
+            let entities = world.entities();
             let bumps = SyncBump::new(pool, bump);
             pool.scope(|scope| {
                 for node_index in 0..nodes.len() {
-                    signal_to_node(nodes, node_index, archetypes, scope, &bumps);
+                    signal_to_node(nodes, node_index, entities, archetypes, scope, &bumps);
                 }
             })
         }
     }
 }
 
-trait AnyQuery: Send + 'static {
+trait AnySystem: Send + 'static {
     fn access_types<'a>(
         &self,
         archetype: &ArchetypeInfo,
@@ -245,7 +243,7 @@ trait AnyQuery: Send + 'static {
     fn run_once(&mut self, world: WorldAccess<'_>);
 }
 
-impl<A, F> AnyQuery for Option<(A, F)>
+impl<A, F> AnySystem for Option<(A, F)>
 where
     A: for<'a> Accessor<'a> + Send + 'static,
     F: for<'a> FnOnce(WorldAccess<'a>) + Send + 'static,
@@ -264,25 +262,35 @@ where
     }
 }
 
+/// System execution schedule.
+///
+/// Schedules systems in conflict-free fasion.
+/// That is, no two conflicting system may be executed in parallel.
+/// Two systems conflict if they access same components on same archetypes
+/// and at least one of them do so mutably.
+///
+/// Scheduler will schedule a system after all conflicting systems that were added before.
 pub struct Schedule {
-    queries: Vec<Box<dyn AnyQuery>>,
+    systems: Vec<Box<dyn AnySystem>>,
 }
 
 impl Schedule {
     /// Build new schedule.
     pub fn new() -> Self {
         Schedule {
-            queries: Vec::new(),
+            systems: Vec::new(),
         }
     }
 
-    /// Schedule the query for execution.
+    /// Schedule the system for execution.
     ///
-    /// Query filters archetypes and declares access types for the components.
-    /// Which SHOULD be a union of access types performed by all views in the set.
-    /// The query will be executed with `WorldAccess` synchronized for those access types.
-    /// If queries would try to access unsynchronized components then acquired `WorldAccess` would panic to prevent UB.
-    pub fn add_query<A>(
+    /// `accessor` declares access types for the components.
+    /// Which SHOULD be a union of access types performed by all views in the system closure.
+    /// The system will be executed with `WorldAccess` synchronized for those access types.
+    /// If system would try to access unsynchronized components then acquired `WorldAccess` would panic.
+    ///
+    /// `f` is the system closure.
+    pub fn add_system<A>(
         &mut self,
         accessor: A,
         f: impl FnOnce(WorldAccess<'_>) + Send + 'static,
@@ -290,13 +298,19 @@ impl Schedule {
     where
         A: for<'a> Accessor<'a> + Send + 'static,
     {
-        self.queries.push(Box::new(Some((accessor, f))));
+        self.systems.push(Box::new(Some((accessor, f))));
         self
     }
 
-    /// Schedule the query for execution.
-    /// See `add_query` for details.
-    pub fn with_query<A>(
+    /// Schedule the system for execution.
+    ///
+    /// `accessor` declares access types for the components.
+    /// Which SHOULD be a union of access types performed by all views in the system closure.
+    /// The system will be executed with `WorldAccess` synchronized for those access types.
+    /// If system would try to access unsynchronized components then acquired `WorldAccess` would panic.
+    ///
+    /// `f` is the system closure.
+    pub fn with_system<A>(
         mut self,
         accessor: A,
         f: impl FnOnce(WorldAccess<'_>) + Send + 'static,
@@ -304,25 +318,26 @@ impl Schedule {
     where
         A: for<'a> Accessor<'a> + Send + 'static,
     {
-        self.queries.push(Box::new(Some((accessor, f))));
+        self.systems.push(Box::new(Some((accessor, f))));
         self
     }
 
     /// Execute all nodes on this thread.
+    /// Doesn't require synchronization as all system are executed in sequence.
     pub fn execute(self, world: &mut World, bump: &Bump) {
         let archetypes = world.archetypes();
-        for mut query in self.queries {
+        for mut system in self.systems {
             let access_types = BVec::from_iter_in(
                 archetypes
                     .iter()
-                    .map(|a| query.access_types(a.info(), bump)),
+                    .map(|a| system.access_types(a.info(), bump)),
                 bump,
             );
             let world_access = unsafe {
                 // Unique borrow of `World` gives all required access.
-                WorldAccess::new(archetypes, &*access_types, bump)
+                WorldAccess::new(world.entities(), archetypes, &*access_types, bump)
             };
-            query.run_once(world_access);
+            system.run_once(world_access);
         }
     }
 }

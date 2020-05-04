@@ -1,23 +1,11 @@
 use {
     crate::{
+        archetype::Location,
         generation::{Generation, GenerationCounter},
         util::{Shared, SyncPop, SyncPush},
     },
     std::{cell::UnsafeCell, fmt::Debug},
 };
-
-/// Location of entity's components in storage.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Location {
-    /// ArchetypeInfo storage index.
-    pub archetype: u32,
-
-    /// Chunk index in archetype.
-    pub chunk: u16,
-
-    /// Index in chunk.
-    pub entity: u16,
-}
 
 /// Entity index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
