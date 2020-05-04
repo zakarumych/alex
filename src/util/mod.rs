@@ -9,7 +9,7 @@ use std::{
 pub use self::{iterator::*, sync::*};
 
 lazy_static::lazy_static! {
-    pub static ref CACHE_LINE_SIZE_HINT: usize = get_cache_line_size().unwrap_or(512);
+    pub(crate) static ref CACHE_LINE_SIZE_HINT: usize = get_cache_line_size().unwrap_or(512);
 }
 
 fn get_cache_line_size() -> Option<usize> {
@@ -36,13 +36,13 @@ fn get_cache_line_size() -> Option<usize> {
 #[cfg(target_pointer_width = "16")]
 #[repr(transparent)]
 #[derive(Clone, Copy, Default)]
-pub struct U32Size(u16);
+pub(crate) struct U32Size(u16);
 
 /// Value that fits both `u32` and `usize`
 #[cfg(not(target_pointer_width = "16"))]
 #[repr(transparent)]
 #[derive(Clone, Copy, Default)]
-pub struct U32Size(u32);
+pub(crate) struct U32Size(u32);
 
 impl TryFrom<u32> for U32Size {
     type Error = std::num::TryFromIntError;

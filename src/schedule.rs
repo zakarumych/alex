@@ -2,7 +2,6 @@ use {
     crate::{
         access::{Access, Accessor, ComponentAccess, WorldAccess},
         archetype::ArchetypeInfo,
-        entity::Entities,
         world::World,
     },
     bumpalo::{collections::Vec as BVec, Bump},
@@ -12,7 +11,7 @@ use {
 mod parallel {
     use {
         super::*,
-        crate::archetype::Archetype,
+        crate::{archetype::Archetype, entity::Entities},
         rayon::ThreadPool,
         std::{
             cell::UnsafeCell,

@@ -129,8 +129,6 @@ fn main() {
 
     #[cfg(not(all(feature = "rayon", feature = "parallel")))]
     schedule.execute(&mut world, &Bump::new());
-
-    assert_eq!(world.archetypes().len(), 4);
 }
 
 fn init_logger() {

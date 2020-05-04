@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
 
 /// Location of entity's components in storage.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct Location {
+pub(crate) struct Location {
     /// ArchetypeInfo storage index.
     pub archetype: U32Size,
 
@@ -180,7 +180,7 @@ impl ArchetypeInfo {
             .map(|c| c.offset)
     }
 
-    pub fn split_entity_index(&self, index: U32Size) -> (U32Size, U32Size) {
+    pub(crate) fn split_entity_index(&self, index: U32Size) -> (U32Size, U32Size) {
         let chunk = index.as_u32() / self.chunk_capacity.as_u32();
         let entity = index.as_u32() % self.chunk_capacity.as_u32();
 
@@ -194,7 +194,7 @@ impl ArchetypeInfo {
 /// Archetype stores all entities with same set of components.
 /// They are created on demand when first entity with particular components set is built.
 #[cfg_attr(debug_assertions, derive(Debug))]
-pub struct Archetype {
+pub(crate) struct Archetype {
     info: ArchetypeInfo,
 
     /// Array of chunks storing entities of this archetype.

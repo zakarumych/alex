@@ -141,7 +141,7 @@ impl<'a> ArchetypeAccess<'a> {
     ///
     /// This function must be used only when archetype is externally
     /// synchronized for specified access types.
-    pub unsafe fn new(
+    pub(crate) unsafe fn new(
         archetype: &'a Archetype,
         access_types: impl Iterator<Item = ComponentAccess>,
         bump: &'a Bump,
@@ -603,7 +603,7 @@ impl<'a> WorldAccess<'a> {
     ///
     /// This function must be used only for archetypes that are
     /// externally synchronized for specified access types.
-    pub unsafe fn new(
+    pub(crate) unsafe fn new(
         entities: &'a Entities,
         archetypes: &'a [Archetype],
         access_types: &'a [BVec<'a, ComponentAccess>],

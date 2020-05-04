@@ -29,7 +29,7 @@ mod orthogonal {
     }
 
     /// Synchronous multithreaded consumable vector.
-    pub struct SyncPop<T> {
+    pub(crate) struct SyncPop<T> {
         vec: UnsafeCell<Vec<T>>,
     }
 
@@ -110,8 +110,8 @@ mod orthogonal {
         }
     }
 
-    /// Multi-producer storage.
-    pub struct SyncPush<T> {
+    /// Multi-consumer storage.
+    pub(crate) struct SyncPush<T> {
         vec: UnsafeCell<Vec<T>>,
     }
 
@@ -176,7 +176,7 @@ mod parallel {
     pub use parking_lot::Mutex as Shared;
 
     /// Synchronous multithreaded consumable vector.
-    pub struct SyncPop<T> {
+    pub(crate) struct SyncPop<T> {
         ptr: *mut T,
         len: AtomicUsize,
         cap: usize,
@@ -294,8 +294,8 @@ mod parallel {
         }
     }
 
-    /// Multi-producer storage.
-    pub struct SyncPush<T> {
+    /// Multi-consumer storage.
+    pub(crate) struct SyncPush<T> {
         ptr: *mut T,
         len: AtomicUsize,
         cap: usize,

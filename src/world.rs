@@ -154,7 +154,7 @@ impl World {
     }
 
     /// Returns slice of archetypes.
-    pub fn archetypes(&self) -> &[Archetype] {
+    pub(crate) fn archetypes(&self) -> &[Archetype] {
         &self.archetypes.array
     }
 
