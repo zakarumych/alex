@@ -80,9 +80,9 @@ fn main() {
                 // Write access to `Foo` and `Bar` is granted only for archetypes with both
                 // so filter is necessary.
                 for foo in write_foo_world.entities_iter(write::<Foo>().with::<Bar>()) {
-                    println!("foo: {:?}", foo.0);
+                    log::info!("foo: {:?}", foo.0);
                     for bar in world.entities_iter(write::<Bar>().with::<Foo>()) {
-                        println!("\tbar: {:?}", bar.0);
+                        log::info!("\tbar: {:?}", bar.0);
                     }
                 }
             },
@@ -93,7 +93,7 @@ fn main() {
             move |mut world: WorldAccess<'_>| {
                 // Iterating over `A | B` view will yield tuple of options of those views.
                 for Zip((foo, bar)) in world.entities_iter(write::<Foo>() | read::<Bar>()) {
-                    println!("foo: {:?}, bar: {:?}", foo, bar);
+                    log::info!("foo: {:?}, bar: {:?}", foo, bar);
                 }
 
                 {
@@ -106,16 +106,16 @@ fn main() {
                     // `take_entity_iter` is slightly faster shortcut for `take` followed by `entity_iter`
                     // applicable when `Accessor` and `View` are the same.
                     for foo in world.take_entities_iter(write::<Foo>()) {
-                        println!("foo: {:?}", foo.0);
+                        log::info!("foo: {:?}", foo.0);
                         for bar in world.entities_iter(write::<Bar>()) {
-                            println!("\tbar: {:?}", bar.0);
+                            log::info!("\tbar: {:?}", bar.0);
                         }
                     }
                 }
 
                 // Borrow ends, `WorldAccess` is usable again.
                 for foo in world.entities_iter(write::<Foo>()) {
-                    println!("foo: {:?}", foo.0);
+                    log::info!("foo: {:?}", foo.0);
                 }
             },
         );

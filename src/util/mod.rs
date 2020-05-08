@@ -12,6 +12,12 @@ lazy_static::lazy_static! {
     pub(crate) static ref CACHE_LINE_SIZE_HINT: usize = get_cache_line_size().unwrap_or(512);
 }
 
+#[cfg(target_arch = "wasm32")]
+fn get_cache_line_size() -> Option<usize> {
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn get_cache_line_size() -> Option<usize> {
     use raw_cpuid::*;
 

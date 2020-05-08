@@ -7,10 +7,10 @@
 
 <body>
     <script type="module">
-        import init from './generated/simple.js';
+        import init from './generated/many.js';
         new Promise(function (resolve, reject) {
             window.addEventListener("load", () => {
-                init('./generated/simple.wasm').then((m) => resolve(m));
+                init('./generated/many.wasm').then((m) => resolve(m));
             })
         })
     </script>

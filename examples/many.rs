@@ -15,12 +15,12 @@ fn main() {
 
     // Insert new entities with `Foo` component.
     world
-        .insert(std::iter::repeat((Foo(42),)).take(10000))
+        .insert(std::iter::repeat((Foo(42),)).take(100000))
         .count();
 
     Schedule::new()
         .with_system(read::<Foo>(), |mut world| {
-            world.entities_iter(read::<Foo>()).count();
+            log::info!("Counted - {}", world.entities_iter(read::<Foo>()).count());
         })
         .execute(&mut world, &Bump::new());
 }
