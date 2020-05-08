@@ -18,8 +18,16 @@ use {
     },
 };
 
-lazy_static::lazy_static! {
-    static ref CHUNK_UPPER_LIMIT: usize = std::env::var("ALEX_CHUNK_UPPER_LIMIT").ok().and_then(|s| s.parse().ok()).unwrap_or(4096);
+fn chunk_upper_limit() -> usize {
+    std::option_env!("ALEX_CHUNK_UPPER_LIMIT")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(65536)
+}
+
+fn chunk_lower_limit() -> usize {
+    std::option_env!("ALEX_CHUNK_LOWER_LIMIT")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(512)
 }
 
 /// Location of entity's components in storage.
@@ -69,6 +77,9 @@ impl ArchetypeInfo {
             "components must be sorted",
         );
 
+        let chunk_lower_limit = chunk_lower_limit();
+        let chunk_upper_limit = chunk_upper_limit();
+
         // Find total entity size.
         let entity_size: usize = components
             .iter()
@@ -77,7 +88,7 @@ impl ArchetypeInfo {
             .sum();
 
         assert!(
-            entity_size <= *CHUNK_UPPER_LIMIT,
+            entity_size <= chunk_upper_limit,
             "Too many large components. Consider boxing them or storing elsewhere",
         );
 
@@ -100,7 +111,7 @@ impl ArchetypeInfo {
         // and is power of two.
         let chunk_hint = CACHE_LINE_SIZE_HINT
             .max(1)
-            .min(*CHUNK_UPPER_LIMIT)
+            .min(chunk_upper_limit)
             .max(min_align)
             .next_power_of_two();
 
@@ -119,7 +130,10 @@ impl ArchetypeInfo {
         debug_assert!(size_gcd.is_power_of_two());
 
         // Capacity * <any component size> should be multiple of chunk hints.
-        let chunk_capacity = (chunk_hint / size_gcd).min(1);
+        let chunk_capacity_hint = (chunk_hint / size_gcd).max(1);
+        let chunk_capacity_min = chunk_lower_limit.next_power_of_two();
+
+        let chunk_capacity = std::cmp::max(chunk_capacity_min, chunk_capacity_hint);
 
         // Ensure chunk size fits `usize`.
         let chunk_size = chunk_capacity

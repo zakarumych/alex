@@ -1,4 +1,4 @@
-use {alex::*, bumpalo::Bump};
+use alex::{bumpalo::Bump, *};
 
 #[cfg(all(feature = "rayon", feature = "parallel"))]
 use rayon::ThreadPoolBuilder;
@@ -34,7 +34,7 @@ fn main() {
     assert_eq!(world.get_component::<Bar>(&foobar_entity), Some(&Bar(3)));
 
     // Create new systems execution schedule.
-    let schedule = Schedule::new()
+    let mut schedule = Schedule::new()
         // Add system that overwrites `Foo`s.
         .with_system(write::<Foo>(), move |mut world: WorldAccess<'_>| {
             // Iterate over all entities with `Foo` component and yield reference to the component.

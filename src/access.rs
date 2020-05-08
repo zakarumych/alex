@@ -124,12 +124,10 @@ for_sequences!(tuple_accessor);
 pub struct ArchetypeAccess<'a> {
     /// Shared archetype.
     archetype: &'a Archetype,
-
     /// Array of access types this instance grants to its owner.
     access_types: BVec<'a, ComponentAccess>,
-
+    /// Bump allocator for reborrows.
     bump: &'a Bump,
-
     /// Deny clone derive.
     marker: PhantomData<&'a mut u8>,
 }
@@ -143,12 +141,12 @@ impl<'a> ArchetypeAccess<'a> {
     /// synchronized for specified access types.
     pub(crate) unsafe fn new(
         archetype: &'a Archetype,
-        access_types: impl Iterator<Item = ComponentAccess>,
+        access_types: &'a [ComponentAccess],
         bump: &'a Bump,
     ) -> Self {
         ArchetypeAccess {
-            access_types: BVec::from_iter_in(access_types, bump),
             archetype,
+            access_types: BVec::from_iter_in(access_types.iter().copied(), bump),
             bump,
             marker: PhantomData,
         }
@@ -615,7 +613,7 @@ impl<'a> WorldAccess<'a> {
                     .iter()
                     .zip(access_types)
                     .map(|(archetype, access_types)| {
-                        ArchetypeAccess::new(archetype, access_types.iter().copied(), bump)
+                        ArchetypeAccess::new(archetype, access_types, bump)
                     }),
                 bump,
             ),

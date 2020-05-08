@@ -102,7 +102,7 @@ pub struct Chunks<'a> {
 
 impl<'a> Chunks<'a> {
     pub fn new(ptrs: &'a [NonNull<u8>], chunk: usize, len: usize) -> Self {
-        let chunks_count = if len == 0 { 0 } else { (len - 1) % chunk + 1 };
+        let chunks_count = if len == 0 { 0 } else { (len - 1) / chunk + 1 };
         assert_eq!(ptrs.len(), chunks_count);
         Chunks {
             ptrs: ptrs.iter(),

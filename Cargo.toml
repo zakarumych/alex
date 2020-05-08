@@ -6,6 +6,7 @@ edition = "2018"
 
 [features]
 parallel = ["parking_lot"]
+faster = []
 
 [dependencies]
 bumpalo = { version = "3.2", features = ["collections"] }

@@ -55,3 +55,5 @@ pub use self::{
     access::*, and::*, archetype::*, component::*, entity::*, filter::*, generation::*, or::*,
     read::*, schedule::*, util::*, view::*, world::*, write::*,
 };
+
+pub use bumpalo;

@@ -16,6 +16,7 @@ fn get_cache_line_size() -> Option<usize> {
     use raw_cpuid::*;
 
     let cpuid = CpuId::new();
+
     let size = cpuid
         .get_cache_parameters()?
         .filter(|p| p.level() == 1 && p.cache_type() == CacheType::Data)

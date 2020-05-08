@@ -38,7 +38,7 @@ mod parallel {
         signals: Vec<usize>,
 
         /// Closure to run for this node.
-        runnable: UnsafeCell<Box<dyn AnySystem>>,
+        runnable: UnsafeCell<&'a mut dyn AnySystem>,
 
         access_types: BVec<'a, BVec<'a, ComponentAccess>>,
     }
@@ -49,7 +49,7 @@ mod parallel {
         /// Node access to filtered archetypes must be synchronzied.
         /// This function must be called at most once.
         unsafe fn execute(&self, entities: &Entities, archetypes: &[Archetype], bump: &Bump) {
-            (&mut *self.runnable.get()).run_once(WorldAccess::new(
+            (&mut **self.runnable.get()).run(WorldAccess::new(
                 entities,
                 archetypes,
                 &*self.access_types,
@@ -161,7 +161,7 @@ mod parallel {
 
     impl Schedule {
         /// Execute all nodes on rayon thread pool.
-        pub fn execute_rayon(self, pool: &ThreadPool, world: &mut World, bump: &Bump) {
+        pub fn execute_rayon(&mut self, pool: &ThreadPool, world: &mut World, bump: &Bump) {
             use self::parallel::*;
             let mut archetypes = BVec::from_iter_in(
                 world
@@ -177,7 +177,7 @@ mod parallel {
 
             let mut nodes = BVec::<Node<'_>>::new_in(bump);
 
-            for system in self.systems {
+            for system in &mut self.systems {
                 let next_node = nodes.len();
                 let mut waits = BVec::new_in(bump);
 
@@ -213,7 +213,7 @@ mod parallel {
                 nodes.push(Node {
                     waits: AtomicUsize::new(waits + 1), // One extra will be subtracted by execution loop.
                     signals: Vec::new(),
-                    runnable: UnsafeCell::new(system),
+                    runnable: UnsafeCell::new(&mut **system),
                     access_types,
                 });
             }
@@ -239,24 +239,24 @@ trait AnySystem: Send + 'static {
         bump: &'a Bump,
     ) -> BVec<'a, ComponentAccess>;
 
-    fn run_once(&mut self, world: WorldAccess<'_>);
+    fn run(&mut self, world: WorldAccess<'_>);
 }
 
-impl<A, F> AnySystem for Option<(A, F)>
+impl<A, F> AnySystem for (A, F)
 where
     A: for<'a> Accessor<'a> + Send + 'static,
-    F: for<'a> FnOnce(WorldAccess<'a>) + Send + 'static,
+    F: for<'a> FnMut(WorldAccess<'a>) + Send + 'static,
 {
     fn access_types<'a>(
         &self,
         archetype: &ArchetypeInfo,
         bump: &'a Bump,
     ) -> BVec<'a, ComponentAccess> {
-        sort_dedup_access_types(self.as_ref().unwrap().0.access_types(archetype), bump)
+        sort_dedup_access_types(self.0.access_types(archetype), bump)
     }
 
-    fn run_once(&mut self, world: WorldAccess<'_>) {
-        let (_, f) = self.take().unwrap();
+    fn run(&mut self, world: WorldAccess<'_>) {
+        let (_, f) = self;
         f(world)
     }
 }
@@ -292,12 +292,12 @@ impl Schedule {
     pub fn add_system<A>(
         &mut self,
         accessor: A,
-        f: impl FnOnce(WorldAccess<'_>) + Send + 'static,
+        f: impl FnMut(WorldAccess<'_>) + Send + 'static,
     ) -> &mut Self
     where
         A: for<'a> Accessor<'a> + Send + 'static,
     {
-        self.systems.push(Box::new(Some((accessor, f))));
+        self.systems.push(Box::new((accessor, f)));
         self
     }
 
@@ -312,20 +312,20 @@ impl Schedule {
     pub fn with_system<A>(
         mut self,
         accessor: A,
-        f: impl FnOnce(WorldAccess<'_>) + Send + 'static,
+        f: impl FnMut(WorldAccess<'_>) + Send + 'static,
     ) -> Self
     where
         A: for<'a> Accessor<'a> + Send + 'static,
     {
-        self.systems.push(Box::new(Some((accessor, f))));
+        self.systems.push(Box::new((accessor, f)));
         self
     }
 
     /// Execute all nodes on this thread.
     /// Doesn't require synchronization as all system are executed in sequence.
-    pub fn execute(self, world: &mut World, bump: &Bump) {
+    pub fn execute(&mut self, world: &mut World, bump: &Bump) {
         let archetypes = world.archetypes();
-        for mut system in self.systems {
+        for system in &mut self.systems {
             let access_types = BVec::from_iter_in(
                 archetypes
                     .iter()
@@ -336,7 +336,7 @@ impl Schedule {
                 // Unique borrow of `World` gives all required access.
                 WorldAccess::new(world.entities(), archetypes, &*access_types, bump)
             };
-            system.run_once(world_access);
+            system.run(world_access);
         }
     }
 }
