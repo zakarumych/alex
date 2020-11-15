@@ -1,0 +1,11 @@
+[package]
+name = "alex"
+version = "0.1.0"
+edition = "2018"
+authors = ["Zakarum <zakarumych@ya.ru>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/alex/0.1.0"
+homepage = "https://github.com/Zakarum <zakarumych@ya.ru>/alex"
+repository = "https://github.com/Zakarum <zakarumych@ya.ru>/alex"
+
+[dependencies]
