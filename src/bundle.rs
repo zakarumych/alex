@@ -1,9 +1,6 @@
 use {
     crate::{archetype::UninitComponents, component::ComponentInfo},
-    core::{
-        any::{type_name, TypeId},
-        mem::align_of,
-    },
+    core::any::{type_name, TypeId},
 };
 
 /// Allows inserting bundles of components into ECS.
@@ -60,21 +57,8 @@ macro_rules! impl_component_source_for_tuple {
             $($a: 'static,)+
         {
             fn with_ids<T>(&self, f: impl FnOnce(&[TypeId]) -> T) -> T {
-                let mut array = [$(
-                    (!0 - align_of::<$a>(), TypeId::of::<$a>()),
-                )+];
-                array.sort_unstable();
-
-                let empty: TypeId = TypeId::of::<()>();
-
-                let mut type_ids = [$(
-                    const_tree_for_token!($a, empty),
-                )+];
-
-                for (t, &(_, r)) in Iterator::zip(type_ids.iter_mut(), array.iter()) {
-                    *t = r;
-                }
-
+                let mut type_ids = [$(TypeId::of::<$a>(),)+];
+                type_ids.sort_unstable();
                 f(&type_ids)
             }
 
@@ -88,7 +72,7 @@ macro_rules! impl_component_source_for_tuple {
 
             fn with_type_names<T>(&self, f: impl FnOnce(&[&'static str]) -> T) -> T {
                 let mut array = [$(
-                    (!0 - align_of::<$a>(), TypeId::of::<$a>(), type_name::<$a>()),
+                    (TypeId::of::<$a>(), type_name::<$a>()),
                 )+];
                 array.sort_unstable();
 
@@ -96,7 +80,7 @@ macro_rules! impl_component_source_for_tuple {
                     const_tree_for_token!($a, ""),
                 )+];
 
-                for (t, &(_, _, r)) in Iterator::zip(type_names.iter_mut(), array.iter()) {
+                for (t, &(_, r)) in Iterator::zip(type_names.iter_mut(), array.iter()) {
                     *t = r;
                 }
 
@@ -104,6 +88,8 @@ macro_rules! impl_component_source_for_tuple {
             }
 
             fn init_components(self, mut uninit: UninitComponents<'_>) {
+                #![allow(non_snake_case)]
+
                 let ($($a,)+) = self;
 
                 $(

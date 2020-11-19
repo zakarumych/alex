@@ -16,12 +16,17 @@ pub enum AccessKind {
 }
 
 /// Request access to a component.
+#[derive(Clone, Copy)]
 pub struct AccessComponent {
     /// Id of the component.
     pub id: TypeId,
 
     /// Access kind requested.
     pub kind: AccessKind,
+}
+
+pub trait AccessOne {
+    fn access(&self, archetype: &Archetype) -> AccessComponent;
 }
 
 /// Declare components and access kind.
@@ -32,24 +37,80 @@ pub trait Access {
         -> T;
 }
 
-pub struct AccessRef<'a, T> {
-    index: usize,
-    offset: usize,
-    marker: PhantomData<fn() -> &'a T>,
+impl<A> Access for A
+where
+    A: AccessOne,
+{
+    fn with_accesses<T>(
+        &self,
+        archetype: &Archetype,
+        f: impl FnOnce(&[AccessComponent]) -> T,
+    ) -> T {
+        f(core::slice::from_ref(&self.access(archetype)))
+    }
 }
 
-pub struct AccessRefMut<'a, T> {
-    index: usize,
+pub struct ArchetypeRef<'a, T> {
+    offset: usize,
+    marker: PhantomData<fn() -> &'a T>,
+    unlock: &'a Cell<usize>,
+}
+
+impl<'a, T> Drop for ArchetypeRef<'a, T> {
+    fn drop(&mut self) {
+        self.unlock.set(self.unlock.get() + 1);
+    }
+}
+
+impl<'a, T> ArchetypeRef<'a, T> {
+    pub unsafe fn get(&self, raw: NonNull<u8>) -> NonNull<T> {
+        NonNull::new_unchecked(raw.as_ptr().add(self.offset) as *mut T)
+    }
+}
+
+pub struct ArchetypeRefMut<'a, T> {
     offset: usize,
     marker: PhantomData<fn() -> &'a mut T>,
+    unlock: &'a Cell<usize>,
+}
+
+impl<'a, T> Drop for ArchetypeRefMut<'a, T> {
+    fn drop(&mut self) {
+        debug_assert_eq!(self.unlock.get(), 0);
+        self.unlock.set(usize::MAX);
+    }
+}
+
+impl<'a, T> ArchetypeRefMut<'a, T> {
+    pub unsafe fn get(&self, raw: NonNull<u8>) -> NonNull<T> {
+        NonNull::new_unchecked(raw.as_ptr().add(self.offset) as *mut T)
+    }
 }
 
 pub struct AccessDyn<'a> {
-    index: usize,
     offset: usize,
     id: TypeId,
     kind: AccessKind,
-    marker: PhantomData<fn() -> &'a mut ()>,
+    unlock: &'a Cell<usize>,
+}
+
+impl<'a> Drop for AccessDyn<'a> {
+    fn drop(&mut self) {
+        match self.kind {
+            AccessKind::Shared => self.unlock.set(self.unlock.get() + 1),
+            AccessKind::Mutable => {
+                debug_assert_eq!(self.unlock.get(), 0);
+                self.unlock.set(usize::MAX);
+            }
+        }
+    }
+}
+
+impl<'a> AccessDyn<'a> {
+    pub unsafe fn get<T: 'static>(&self, raw: NonNull<u8>) -> NonNull<T> {
+        debug_assert_eq!(self.id, TypeId::of::<T>());
+        NonNull::new_unchecked(raw.as_ptr().add(self.offset) as *mut T)
+    }
 }
 
 /// Accesses granted to an archetype.
@@ -60,6 +121,10 @@ pub struct ArchetypeAccess<'a> {
 }
 
 impl<'a> ArchetypeAccess<'a> {
+    pub(crate) fn new(granted: &'a [Cell<usize>], storage: &'a ArchetypeStorage) -> Self {
+        ArchetypeAccess { granted, storage }
+    }
+
     pub fn len(&self) -> usize {
         self.storage.len()
     }
@@ -69,17 +134,18 @@ impl<'a> ArchetypeAccess<'a> {
     }
 
     /// Borrow shared access to the components of type `T`.
-    pub fn borrow_ref<T: 'static>(&self) -> Option<AccessRef<'a, T>> {
+    pub fn borrow_ref<T: 'static>(&self) -> Option<ArchetypeRef<'a, T>> {
         let id = TypeId::of::<T>();
         let index = self.storage.component_index(id)?;
+        debug_assert!(self.granted.len() > index);
         let granted = unsafe { self.granted.get_unchecked(index) };
         match granted.get() {
             0 => None,
             left => {
                 granted.set(left - 1);
 
-                Some(AccessRef {
-                    index,
+                Some(ArchetypeRef {
+                    unlock: granted,
                     offset: unsafe { self.storage.component_offset_by_index_unchecked(index) },
                     marker: PhantomData,
                 })
@@ -88,16 +154,17 @@ impl<'a> ArchetypeAccess<'a> {
     }
 
     /// Borrow shared access to the components of type `T`.
-    pub fn borrow_mut<T: 'static>(&self) -> Option<AccessRefMut<'a, T>> {
+    pub fn borrow_mut<T: 'static>(&self) -> Option<ArchetypeRefMut<'a, T>> {
         let id = TypeId::of::<T>();
         let index = self.storage.component_index(id)?;
+        debug_assert!(self.granted.len() > index);
         let granted = unsafe { self.granted.get_unchecked(index) };
         match granted.get() {
             usize::MAX => {
                 granted.set(0);
 
-                Some(AccessRefMut {
-                    index,
+                Some(ArchetypeRefMut {
+                    unlock: granted,
                     offset: unsafe { self.storage.component_offset_by_index_unchecked(index) },
                     marker: PhantomData,
                 })
@@ -109,14 +176,15 @@ impl<'a> ArchetypeAccess<'a> {
     /// Borrow shared access to the components of type `T`.
     pub fn borrow_dyn(&self, id: TypeId, kind: AccessKind) -> Option<AccessDyn<'a>> {
         let index = self.storage.component_index(id)?;
+        debug_assert!(self.granted.len() > index);
         let granted = unsafe { self.granted.get_unchecked(index) };
 
         let offset = match (granted.get(), kind) {
-            (usize::MAX, AccessKind::Exclusive) => {
+            (usize::MAX, AccessKind::Mutable) => {
                 granted.set(0);
                 unsafe { self.storage.component_offset_by_index_unchecked(index) }
             }
-            0 => return None,
+            (0, _) => return None,
             (left, AccessKind::Shared) => {
                 granted.set(left - 1);
                 unsafe { self.storage.component_offset_by_index_unchecked(index) }
@@ -125,49 +193,10 @@ impl<'a> ArchetypeAccess<'a> {
         };
 
         Some(AccessDyn {
-            index,
+            unlock: granted,
             offset,
             id,
             kind,
-            marker: PhantomData,
         })
-    }
-
-    pub fn release_ref<T>(&self, access: AccessRef<'a, T>) {
-        assert!(self.storage.is_correct_index_offset(
-            TypeId::of::<T>(),
-            access.index,
-            access.offset
-        ));
-
-        let granted = &self.granted[access.index];
-        granted.set(granted.get() + 1);
-    }
-
-    pub fn release_mut<T>(&self, access: AccessRefMut<'a, T>) {
-        assert!(self.storage.is_correct_index_offset(
-            TypeId::of::<T>(),
-            access.index,
-            access.offset
-        ));
-
-        let granted = &self.granted[access.index];
-        debug_assert_eq!(granted.get(), 0);
-        granted.set(usize::MAX);
-    }
-
-    pub fn release_dyn(&self, access: AccessDyn<'a>) {
-        assert!(self
-            .storage
-            .is_correct_index_offset(access.id, access.index, access.offset));
-
-        let granted = &self.granted[access.index];
-        match access.kind {
-            AccessKind::Shared => granted.set(granted.get() + 1),
-            AccessKind::Exclusive => {
-                debug_assert_eq!(granted.get(), 0);
-                granted.set(usize::MAX);
-            }
-        }
     }
 }

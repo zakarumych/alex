@@ -1,88 +1,82 @@
 use {
-    super::access::ArchetypeAccess,
+    super::access::{ArchetypeAccess, ArchetypeRef, ArchetypeRefMut},
     core::{marker::PhantomData, ptr::NonNull},
 };
+
+pub trait ChunkRefs {
+    type Item;
+    unsafe fn next(&mut self) -> Self::Item;
+}
+
+#[repr(transparent)]
+pub struct ChunkRef<'a, T> {
+    ptr: NonNull<T>,
+    marker: PhantomData<&'a [T]>,
+}
+
+impl<'a, T> ChunkRefs for ChunkRef<'a, T> {
+    type Item = &'a T;
+    unsafe fn next(&mut self) -> &'a T {
+        let result = &*self.ptr.as_ptr();
+        self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().add(1));
+        result
+    }
+}
+
+#[repr(transparent)]
+pub struct ChunkRefMut<'a, T> {
+    ptr: NonNull<T>,
+    marker: PhantomData<&'a mut [T]>,
+}
+
+impl<'a, T> ChunkRefs for ChunkRefMut<'a, T> {
+    type Item = &'a mut T;
+    unsafe fn next(&mut self) -> &'a mut T {
+        let result = &mut *self.ptr.as_ptr();
+        self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().add(1));
+        result
+    }
+}
+
+pub trait ArchetypeRefs {
+    type Item: ChunkRefs;
+    unsafe fn get(&self, base: NonNull<u8>) -> Self::Item;
+}
+
+impl<'a, T> ArchetypeRefs for ArchetypeRef<'a, T> {
+    type Item = ChunkRef<'a, T>;
+    unsafe fn get(&self, base: NonNull<u8>) -> ChunkRef<'a, T> {
+        ChunkRef {
+            ptr: self.get(base),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> ArchetypeRefs for ArchetypeRefMut<'a, T> {
+    type Item = ChunkRefMut<'a, T>;
+    unsafe fn get(&self, base: NonNull<u8>) -> ChunkRefMut<'a, T> {
+        ChunkRefMut {
+            ptr: self.get(base),
+            marker: PhantomData,
+        }
+    }
+}
 
 /// View components of entities in archetype.
 pub trait View<'a> {
     /// View of one entity.
     type EntityView: 'a;
 
-    /// View of one archetype.
-    type AccessRefs: AccessRefs;
+    type ChunkRefs: ChunkRefs<Item = Self::EntityView>;
 
-    /// Returns `ArchetypeView` for specified `ArchetypeAccess`.
+    /// View of one archetype.
+    type ArchetypeRefs: ArchetypeRefs<Item = Self::ChunkRefs>;
+
+    /// Returns `ArchetypeRefs` for specified `ArchetypeAccess`.
     ///
     /// # Panics
     ///
     /// This function may panic if archetype does not match `View`'s requirements.
-    fn acquire(&self, archetype: ArchetypeAccess<'a>) -> Self::AccessRefs;
-
-    fn release(&self, refs: Self::AccessRefs);
+    fn acquire(&self, archetype: ArchetypeAccess<'a>) -> Self::ArchetypeRefs;
 }
-
-struct ChunkEntityIter<P, R> {
-    pointers: P,
-    len: usize,
-    marker: PhantomData<fn() -> R>,
-}
-
-impl<'a, T> Iterator for ChunkEntityIter<NonNull<u8>, &'a T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<&'a T> {
-        if self.len > 0 {
-            let result = unsafe { &*self.pointers };
-
-            self.pointers = unsafe { self.pointers.offset(1) };
-            self.len -= 1;
-
-            Some(result)
-        } else {
-            None
-        }
-    }
-
-    fn nth(&mut self, n: usize) -> Option<&'a T> {
-        if self.len > n {
-            let result = unsafe { &*self.pointers.add(n) };
-            self.pointers = unsafe { self.pointers.offset(1) };
-            self.len -= n + 1;
-
-            Some(result)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a, T> Iterator for ChunkEntityIter<NonNull<u8>, &'a mut T> {
-    type Item = &'a mut T;
-
-    fn next(&mut self) -> Option<&'a mut T> {
-        if self.len > 0 {
-            let result = unsafe { &mut *self.pointers };
-
-            self.pointers = unsafe { self.pointers.offset(1) };
-            self.len -= 1;
-
-            Some(result)
-        } else {
-            None
-        }
-    }
-
-    fn nth(&mut self, n: usize) -> Option<&'a mut T> {
-        if self.len > n {
-            let result = unsafe { &mut *self.pointers.add(n) };
-            self.pointers = unsafe { self.pointers.offset(1) };
-            self.len -= n + 1;
-
-            Some(result)
-        } else {
-            None
-        }
-    }
-}
-
-pub struct ArchetypeEntityIter {}

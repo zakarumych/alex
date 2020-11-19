@@ -42,11 +42,16 @@ impl ArchetypeStorage {
     /// Returns storage for specified archetype.
     pub fn new(archetype: Archetype) -> Self {
         ArchetypeStorage {
-            places_cache: alloc::vec![Place::new(); archetype.component_count()].into_boxed_slice(), //TODO: switch to `Box::new_zeroed_slice()` when stable
+            places_cache: alloc::vec![Place::new(); archetype.components().len()]
+                .into_boxed_slice(), //TODO: switch to `Box::new_zeroed_slice()` when stable
             archetype,
             chunks: Vec::new(),
             len: 0,
         }
+    }
+
+    pub fn archetype(&self) -> &Archetype {
+        &self.archetype
     }
 
     pub fn len(&self) -> usize {
@@ -161,6 +166,7 @@ impl ArchetypeStorage {
     }
 
     pub unsafe fn component_offset_by_index_unchecked(&self, index: usize) -> usize {
+        debug_assert!(self.archetype.components().len() > index);
         self.archetype.components().get_unchecked(index).offset
     }
 

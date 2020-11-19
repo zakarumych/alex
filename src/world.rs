@@ -4,26 +4,52 @@ use {
         bundle::Bundle,
         component::ComponentInfo,
         entity::{Entity, EntityLocations, Location},
-        util::{TypeIdListMap, TypeIdMap},
+        query::{Access, AccessKind, ArchetypeAccess, View},
+        util::{unreachable_unchecked, AsyncLock, TypeIdListMap, TypeIdMap},
     },
     alloc::{boxed::Box, vec::Vec},
-    core::any::TypeId,
+    core::{
+        any::TypeId,
+        cmp::{Ord, Ordering},
+        future::Future,
+        pin::Pin,
+        sync::atomic::{AtomicUsize, Ordering::*},
+        task::{Context, Poll, Waker},
+    },
     hashbrown::hash_map::RawEntryMut,
+    spin::Mutex,
 };
 
-struct ArchetypeData {
+pub(crate) struct ArchetypeData {
     storage: ArchetypeStorage,
-    with: TypeIdListMap<usize>,
+    // with: TypeIdListMap<usize>,
+    locks: Box<[AsyncLock]>,
+}
+
+impl ArchetypeData {
+    pub(crate) fn storage(&self) -> &ArchetypeStorage {
+        &self.storage
+    }
+
+    pub(crate) fn locks(&self) -> &[AsyncLock] {
+        &self.locks
+    }
 }
 
 impl ArchetypeData {
     fn new(components: Box<[ComponentInfo]>) -> Result<Self, ArchetypeError> {
         let archetype = Archetype::new(components)?;
+        let locks = archetype
+            .components()
+            .iter()
+            .map(|_| AsyncLock::new())
+            .collect();
         let storage = ArchetypeStorage::new(archetype);
 
         Ok(ArchetypeData {
             storage,
-            with: TypeIdListMap::default(),
+            // with: TypeIdListMap::default(),
+            locks,
         })
     }
 }
@@ -113,5 +139,9 @@ impl World {
         } else {
             Err(NoSuchEntity)
         }
+    }
+
+    pub(crate) fn archetypes(&self) -> &[ArchetypeData] {
+        &self.archetypes
     }
 }

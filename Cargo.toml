@@ -8,8 +8,16 @@ documentation = "https://docs.rs/alex/0.1.0"
 homepage = "https://github.com/Zakarum <zakarumych@ya.ru>/alex"
 repository = "https://github.com/Zakarum <zakarumych@ya.ru>/alex"
 
+
+[features]
+std = ["parking_lot"]
+
 [dependencies.spin]
 version = "0.7"
+
+[dependencies.parking_lot]
+version = "0.11"
+optional = true
 
 [dependencies.hashbrown]
 version = "0.9"
@@ -17,3 +25,6 @@ default-features = false
 
 [dependencies.ahash]
 version = "0.5"
+
+[dependencies.pin-project-lite]
+version = "0.2"

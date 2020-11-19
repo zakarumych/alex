@@ -76,19 +76,13 @@ impl Eq for ComponentInfo {
 
 impl PartialOrd for ComponentInfo {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(Ord::cmp(
-            &(!0 - self.layout.align(), self.id),
-            &(!0 - other.layout.align(), other.id),
-        ))
+        Some(Ord::cmp(&self.id, &other.id))
     }
 }
 
 impl Ord for ComponentInfo {
     fn cmp(&self, other: &Self) -> Ordering {
-        Ord::cmp(
-            &(!0 - self.layout.align(), self.id),
-            &(!0 - other.layout.align(), other.id),
-        )
+        Ord::cmp(&self.id, &other.id)
     }
 }
 

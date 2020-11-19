@@ -1,11 +1,8 @@
 use {
     crate::component::ComponentInfo,
     alloc::boxed::Box,
-    core::{alloc::Layout, any::TypeId, cmp::min, mem::size_of, ptr::NonNull},
+    core::{alloc::Layout, any::TypeId, mem::size_of, ptr::NonNull},
 };
-
-const MINIMAL_CHUNK_SIZE: usize = 4096;
-const CHUNK_SIZE_UPPER_BOUND: usize = MINIMAL_CHUNK_SIZE * 2;
 
 #[repr(transparent)]
 pub struct EntityIndex(pub usize);
@@ -41,16 +38,19 @@ impl Archetype {
             acc.checked_add(c.layout().size()).ok_or(EntityIsTooLarge)
         })?;
 
-        components.sort_unstable_by_key(|c| (!0 - c.layout().align(), c.id()));
+        components.sort_unstable();
 
-        let entity_align = components.get(0).map_or(1, |c| c.layout().align());
+        let entity_align = components
+            .iter()
+            .map(|c| c.layout().align())
+            .max()
+            .unwrap_or(1);
 
         let mut acc = size_of::<EntityIndex>();
 
         let mut components = components
             .iter()
             .map(|c| {
-                debug_assert_eq!(acc % c.layout().align(), 0, "Sorting ensures that");
                 acc += c.layout().size();
 
                 Component {
@@ -69,19 +69,19 @@ impl Archetype {
             return Err(EntityIsTooLarge);
         }
 
-        let mut chunk_capacity = usize::MAX;
+        let chunk_capacity = chunk_capacity(entity_size, entity_align).ok_or(EntityIsTooLarge)?;
 
-        if entity_size != 0 {
-            chunk_capacity = (MINIMAL_CHUNK_SIZE - 1) / entity_size + 1;
-            for c in &mut *components {
-                c.offset *= chunk_capacity;
-            }
+        for c in &mut *components {
+            c.offset *= chunk_capacity;
         }
 
-        let chunk_layout = Layout::from_size_align(chunk_capacity * entity_size, entity_align)
-            .map_err(|_| EntityIsTooLarge)?;
-
-        debug_assert!(chunk_layout.size() < min(CHUNK_SIZE_UPPER_BOUND, entity_size));
+        let chunk_layout = Layout::from_size_align(
+            chunk_capacity
+                .checked_mul(entity_size)
+                .ok_or(EntityIsTooLarge)?,
+            entity_align,
+        )
+        .map_err(|_| EntityIsTooLarge)?;
 
         Ok(Archetype {
             components,
@@ -90,10 +90,6 @@ impl Archetype {
             chunk_capacity,
             chunk_layout,
         })
-    }
-
-    pub fn component_count(&self) -> usize {
-        self.components.len()
     }
 
     pub fn components(&self) -> &[Component] {
@@ -114,5 +110,16 @@ impl Archetype {
 
     pub fn chunk_layout(&self) -> Layout {
         self.chunk_layout
+    }
+}
+
+fn chunk_capacity(entity_size: usize, entity_align: usize) -> Option<usize> {
+    debug_assert!(entity_align.is_power_of_two());
+
+    if entity_size == 0 {
+        Some(usize::MAX & !(entity_align))
+    } else {
+        const BASE: usize = 4095;
+        Some(((BASE / entity_size).checked_add(entity_align)?) & !(entity_align - 1))
     }
 }

@@ -2,11 +2,12 @@
 //! alex crate.
 //!
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
 mod archetype;
+mod r#async;
 mod bundle;
 mod component;
 mod entity;
